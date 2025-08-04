@@ -4,13 +4,10 @@ import numpy as np
 from rasterio._rat import (
     RATBase
 )
-
 from rasterio.enums import (
     RATFieldType,
-    RATTableType,
     RATFieldUsage
 )
-
 
 numpy_types = {
     RATFieldType.Integer: np.int32,

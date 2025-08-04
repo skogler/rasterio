@@ -6,8 +6,19 @@ from rasterio.rat import (
     Column
 )
 
-cdef class RATBase:
+cdef _char_array_to_numpy(char** c_strings, int length, str encoding='utf-8'):
+    cdef list py_strings = []
+    cdef int i
 
+    for i in range(length):
+        if c_strings[i] != NULL:
+            py_strings.append(c_strings[i].decode(encoding))
+        else:
+            py_strings.append('')
+
+    return np.array(py_strings, dtype='U')
+
+cdef class RATBase:
     def __cinit__(self):
         self._hRAT = NULL
 
@@ -47,7 +58,6 @@ cdef class RATBase:
 
         column_indexes = self._parse_column_index(ix)
 
-
         for i in column_indexes:
             if i == -1:
                 # Create a new column if it doesn't exist
@@ -77,9 +87,9 @@ cdef class RATBase:
 
         if rat_wrapper._hRAT == NULL:
             raise ValueError("RAT handle failed to clone")
-        
+
         return rat_wrapper
-    
+
     cdef void create(self):
         """Create a new hRAT empty object.
         Use this function when creating a RAT object from scratch.
@@ -104,13 +114,14 @@ cdef class RATBase:
         elif isinstance(ix, slice):
             # Slice of columns
             ix = list(
-                range( *ix.indices( self._get_column_count()))
+                range(*ix.indices(self._get_column_count()))
             )
         elif isinstance(ix, (list, tuple, set)):
             # Collection of columns
             ix = list(ix)
         else:
-            raise AttributeError(f"Index {ix} of type {type(ix)} not recognized. Pass a string, bytes, int, or collection of those types.")
+            raise AttributeError(
+                f"Index {ix} of type {type(ix)} not recognized. Pass a string, bytes, int, or collection of those types.")
 
         # Convert column identifies to a list of integer indexes
         column_indexes = []
@@ -118,17 +129,19 @@ cdef class RATBase:
             if isinstance(index, str):
                 column_indexes.append(self._get_column_index(index))
             elif isinstance(index, bytes):
-                column_indexes.append(self._get_column_index(index.decode()))
+                column_indexes.append(self._get_column_index(index.decode('utf-8')))
             elif isinstance(index, int):
 
                 if index < 0:
                     raise ValueError(f"Index cannot be negative: {index}")
                 elif index > self._get_column_count():
-                    raise ValueError(f"Index cannot be greater than the number of columns: {index}")
+                    raise ValueError(
+                        f"Index cannot be greater than the number of columns: {index}")
 
                 column_indexes.append(index)
             else:
-                raise AttributeError(f'Column indexes must be integers or string, got {type(index)}')
+                raise AttributeError(
+                    f'Column indexes must be integers or string, got {type(index)}')
 
         return column_indexes
 
@@ -168,7 +181,7 @@ cdef class RATBase:
             if GDALRATGetNameOfCol(self._hRAT, i) == name:
                 return i
         return -1
-    
+
     cdef char * _get_column_name(self, const int index):
         """Returns the column name based on the index.
 
@@ -197,9 +210,8 @@ cdef class RATBase:
 
         if index < 0:
             raise AttributeError("Invalid column index")
-        
-        return GDALRATGetUsageOfCol(self._hRAT, index)
 
+        return GDALRATGetUsageOfCol(self._hRAT, index)
 
     cdef GDALRATFieldType _get_column_type(self, int index):
         """Return the type of a column by index.
@@ -215,13 +227,13 @@ cdef class RATBase:
 
         if index < 0:
             raise AttributeError("Invalid column index")
-        
+
         return GDALRATGetTypeOfCol(self._hRAT, index)
-        
+
     cdef int _create_column(self,
-        const char * column_name,
-        const GDALRATFieldType column_type,
-        const GDALRATFieldUsage column_usage):
+                            const char * column_name,
+                            const GDALRATFieldType column_type,
+                            const GDALRATFieldUsage column_usage):
         """Create a new column in the raster attribute table
         Returns the index of the newly created column
 
@@ -249,10 +261,9 @@ cdef class RATBase:
             column_usage
         )
 
-        return self._get_column_count()-1
+        return self._get_column_count() - 1
 
-
-    cdef _get_string_column( self, int column_index, int start_row, int end_row):
+    cdef _get_string_column(self, int column_index, int start_row, int end_row):
         """Returns a string column as a numpy array. String datatypes require
         special handling to determine the dtype based on the maximum length
         of string values in the column.
@@ -269,7 +280,7 @@ cdef class RATBase:
         """
 
         cdef int array_length = self._get_row_count()
-        cdef char **papszStringList = <char **>CPLCalloc(sizeof(char*), array_length)
+        cdef char ** papszStringList = <char **> CPLCalloc(sizeof(char *), array_length)
 
         GDALRATValuesIOAsString(
             self._hRAT,
@@ -280,8 +291,7 @@ cdef class RATBase:
             papszStringList
         )
 
-        tmp = [r for r in papszStringList[:array_length]]
-        arr = np.array(tmp, dtype=str)
+        arr = _char_array_to_numpy(papszStringList, array_length)
         CPLFree(papszStringList)
         return arr
 
@@ -292,14 +302,15 @@ cdef class RATBase:
         ----------
         column_index: int
             Index of the column to return
-        
+
         Returns
         -------
         np.array
         """
-        
+
         if not isinstance(column_index, int):
-            raise AttributeError(f'column_index must be an int, got {type(column_index)}: {column_index}')
+            raise AttributeError(
+                f'column_index must be an int, got {type(column_index)}: {column_index}')
 
         if 0 > column_index > self._get_column_count():
             raise AttributeError(f'Column with index {column_index} does not exist')
@@ -313,7 +324,7 @@ cdef class RATBase:
         # Initialize an empty np array to be returned
 
         retval = np.empty(
-            end_row-start_row,
+            end_row - start_row,
             dtype=numpy_types[column_type]
         )
 
@@ -324,7 +335,7 @@ cdef class RATBase:
                 column_index,
                 start_row,
                 end_row,
-                <int *>np.PyArray_DATA(retval)
+                <int *> np.PyArray_DATA(retval)
             )
         elif column_type == GFT_Real:
             GDALRATValuesIOAsDouble(
@@ -333,7 +344,7 @@ cdef class RATBase:
                 column_index,
                 start_row,
                 end_row,
-                <double *>np.PyArray_DATA(retval)
+                <double *> np.PyArray_DATA(retval)
             )
         elif column_type == GFT_String:
             retval = self._get_string_column(
@@ -343,30 +354,31 @@ cdef class RATBase:
             )
         else:
             raise ValueError(f"Column {column_index} is not a valid type")
-        
+
         return retval
-    
-    def _set_column_values( self, column_index: int, col: Column):
+
+    def _set_column_values(self, column_index: int, col: Column):
         """Set the values of an existing column.
 
         Parameters
         ----------
         column_index: int
             Index of the column to return
-        
+
         Returns
         -------
 
         rasterio.Column
-        
+
         """
-        
+
         if not isinstance(column_index, int):
-            raise AttributeError(f'column_index must be an int, got {type(column_index)}: {column_index}')
+            raise AttributeError(
+                f'column_index must be an int, got {type(column_index)}: {column_index}')
 
         if 0 > column_index > self._get_column_count():
             raise AttributeError(f'Column with index {column_index} does not exist')
-        
+
         assert col.column_type == self._get_column_type(column_index)
         assert col.column_usage == self._get_column_usage(column_index)
 
@@ -380,7 +392,7 @@ cdef class RATBase:
                 column_index,
                 start_row,
                 end_row,
-                <int *>np.PyArray_DATA(col.values)
+                <int *> np.PyArray_DATA(col.values)
             )
         elif col.column_type == GFT_Real:
             GDALRATValuesIOAsDouble(
@@ -389,7 +401,7 @@ cdef class RATBase:
                 column_index,
                 start_row,
                 end_row,
-                <double *>np.PyArray_DATA(col.values)
+                <double *> np.PyArray_DATA(col.values)
             )
         elif col.column_type == GFT_String:
             GDALRATValuesIOAsString(
@@ -398,7 +410,7 @@ cdef class RATBase:
                 column_index,
                 start_row,
                 end_row,
-                <char **>np.PyArray_DATA(col.values)
+                <char **> np.PyArray_DATA(col.values)
             )
         else:
             raise ValueError(f"Column {column_index} is not a valid type")
@@ -407,23 +419,23 @@ cdef class RATBase:
         """Returns the dimensions of the Raster Attribute Table
         """
         return self._get_row_count(), self._get_column_count()
-    
+
     def columns(self):
         """Returns a of names of the Raster Attribute Table columns"""
-        
+
         retval = []
         for ix in range(self._get_column_count()):
-            retval.append(self._get_column_name(ix).decode())
-        
+            retval.append(self._get_column_name(ix).decode('utf-8'))
+
         return retval
-    
+
     def to_numpy(self):
         """Returns the Raster Attribute Table as a numpy array"""
         col_count = range(self._get_column_count())
 
         retval = np.rec.fromarrays(
             [self._get_column_values(ix) for ix in col_count],
-            names=[self._get_column_name(ix).decode() for ix in col_count]
+            names=[self._get_column_name(ix).decode('utf-8') for ix in col_count]
         )
 
         return retval
